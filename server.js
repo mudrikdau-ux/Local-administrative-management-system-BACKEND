@@ -9,7 +9,11 @@ require('dotenv').config();
 const authRoutes = require('./routes/authRoutes');
 const superAdminRoutes = require('./routes/superAdminRoutes');
 const adminRoutes = require('./routes/adminRoutes');
-
+const citizenMonitoringRoutes = require('./routes/citizenMonitoringRoutes');
+const reportRoutes = require('./routes/reportRoutes');
+const securityRoutes = require('./routes/securityRoutes');
+const auditLogRoutes = require('./routes/auditLogRoutes');
+const settingsRoutes = require('./routes/settingsRoutes');
 const app = express();
 
 // Security Middleware
@@ -30,6 +34,11 @@ app.use('/api/', limiter);
 app.use('/api/auth', authRoutes);
 app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/admin', adminRoutes);
+app.use('/api/super-admin/citizens', citizenMonitoringRoutes);
+app.use('/api/super-admin/reports', reportRoutes);
+app.use('/api/super-admin/audit-logs', auditLogRoutes);
+app.use('/api/super-admin/settings', settingsRoutes);
+app.use('/api/super-admin/security', securityRoutes);
 
 // Test Route
 app.get('/', (req, res) => {

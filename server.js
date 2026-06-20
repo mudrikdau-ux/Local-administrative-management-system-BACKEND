@@ -11,9 +11,10 @@ const superAdminRoutes = require('./routes/superAdminRoutes');
 const adminRoutes = require('./routes/adminRoutes');
 const citizenMonitoringRoutes = require('./routes/citizenMonitoringRoutes');
 const reportRoutes = require('./routes/reportRoutes');
-const securityRoutes = require('./routes/securityRoutes');
 const auditLogRoutes = require('./routes/auditLogRoutes');
 const settingsRoutes = require('./routes/settingsRoutes');
+const securityRoutes = require('./routes/securityRoutes');
+const profileRoutes = require('./routes/profileRoutes');
 const app = express();
 
 // Security Middleware
@@ -39,6 +40,7 @@ app.use('/api/super-admin/reports', reportRoutes);
 app.use('/api/super-admin/audit-logs', auditLogRoutes);
 app.use('/api/super-admin/settings', settingsRoutes);
 app.use('/api/super-admin/security', securityRoutes);
+app.use('/api/super-admin/profile', profileRoutes);
 
 // Test Route
 app.get('/', (req, res) => {

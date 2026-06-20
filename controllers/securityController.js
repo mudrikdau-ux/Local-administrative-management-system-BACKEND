@@ -254,6 +254,39 @@ const securityController = {
     },
 
     // ====================================
+    // FORCE LOGOUT USER (All sessions)
+    // ====================================
+    forceLogoutUser: async (req, res) => {
+        try {
+            const { user_id, email, performed_by_name, performed_by } = req.body;
+
+            if (!user_id) {
+                return res.status(400).json({ message: 'User ID is required.' });
+            }
+
+            const TokenBlacklist = require('../models/TokenBlacklist');
+            await TokenBlacklist.removeAllForUser(user_id);
+
+            // Audit log
+            await AuditLogModel.create({
+                email: performed_by_name || 'superadmin@lams.com',
+                role: 'super_admin',
+                action: 'FORCE_LOGOUT',
+                type: 'security',
+                status: 'success',
+                description: `Force logout executed for user ID: ${user_id}` + (email ? ` (${email})` : ''),
+                performed_by: performed_by || 1,
+                ip_address: req.ip
+            });
+
+            res.json({ message: 'All sessions terminated for this user.' });
+        } catch (error) {
+            console.error('Force Logout Error:', error);
+            res.status(500).json({ message: 'Server error.' });
+        }
+    },
+
+    // ====================================
     // GET ALL STATISTICS
     // ====================================
     getStatistics: async (req, res) => {

@@ -11,5 +11,6 @@ router.put('/lock-account', securityController.lockAccount);
 router.put('/unlock-account', securityController.unlockAccount);
 router.get('/alerts', securityController.getAlerts);
 router.put('/alerts/:id/read', securityController.markAlertRead);
+router.post('/force-logout', securityController.forceLogoutUser);
 
 module.exports = router;

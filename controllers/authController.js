@@ -1,11 +1,15 @@
-const bcrypt = require('bcryptjs');
+﻿const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const { generateToken } = require('../utils/helpers');
 const otpService = require('../services/otpService');
 const { sendOTPEmail, sendResetPasswordEmail } = require('../services/emailService');
-
+const TokenBlacklist = require('../models/TokenBlacklist');
+const AuditLogModel = require('../models/AuditLogModel');
+const Security = require('../models/Security');
 const authController = {
-    // Register
+    // ====================================
+    // REGISTER
+    // ====================================
     register: async (req, res) => {
         try {
             const { full_name, email, phone, password, role } = req.body;
@@ -34,6 +38,20 @@ const authController = {
                 console.log('Email not sent (check email config):', emailError.message);
             }
 
+            // Record registration in security logs
+            await Security.recordLogin({
+                user_id: userId,
+                email: email,
+                full_name: full_name,
+                role: role || 'citizen',
+                action: 'REGISTER',
+                status: 'success',
+                ip_address: req.ip,
+                browser: req.headers['user-agent'],
+                device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+            });
+
             res.status(201).json({
                 message: 'Registration successful. Please verify your email with OTP.',
                 userId
@@ -44,18 +62,54 @@ const authController = {
         }
     },
 
-    // Login - Step 1: Validate credentials and send OTP
+    // ====================================
+    // LOGIN - STEP 1: VALIDATE CREDENTIALS & SEND OTP
+    // ====================================
     login: async (req, res) => {
         try {
             const { email, password } = req.body;
 
-            // Check if user exists
             const user = await User.findByEmail(email);
             if (!user) {
+                // Record failed login attempt
+                await Security.recordLogin({
+                    email: email,
+                    action: 'LOGIN',
+                    status: 'failed',
+                    failure_reason: 'Account not found',
+                    ip_address: req.ip,
+                    browser: req.headers['user-agent'],
+                    device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                    operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+                });
+
                 return res.status(400).json({ message: 'Invalid email or password.' });
             }
 
-            // Check if account is active
+            // Check account status
+            if (user.status === 'suspended') {
+                return res.status(403).json({ message: 'Account is suspended. Contact admin.' });
+            }
+
+            if (user.status === 'locked') {
+                // Record blocked attempt
+                await Security.recordLogin({
+                    user_id: user.id,
+                    email: email,
+                    full_name: user.full_name,
+                    role: user.role,
+                    action: 'LOGIN',
+                    status: 'failed',
+                    failure_reason: 'Account locked',
+                    ip_address: req.ip,
+                    browser: req.headers['user-agent'],
+                    device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                    operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+                });
+
+                return res.status(403).json({ message: 'Account is locked. Contact Super Admin.' });
+            }
+
             if (user.status !== 'active') {
                 return res.status(403).json({ message: `Account is ${user.status}. Contact admin.` });
             }
@@ -63,13 +117,28 @@ const authController = {
             // Compare password
             const isMatch = await bcrypt.compare(password, user.password);
             if (!isMatch) {
+                // Record failed login
+                await Security.recordLogin({
+                    user_id: user.id,
+                    email: email,
+                    full_name: user.full_name,
+                    role: user.role,
+                    action: 'LOGIN',
+                    status: 'failed',
+                    failure_reason: 'Invalid password',
+                    ip_address: req.ip,
+                    browser: req.headers['user-agent'],
+                    device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                    operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+                });
+
                 return res.status(400).json({ message: 'Invalid email or password.' });
             }
 
-            // Generate OTP and log to console
+            // Generate OTP
             const otp = await otpService.storeOTP(user.id, email);
             
-            // Try to send email, but don't fail if email config is missing
+            // Try to send email
             try {
                 await sendOTPEmail(email, otp);
             } catch (emailError) {
@@ -87,18 +156,18 @@ const authController = {
         }
     },
 
-    // Login - Step 2: Verify OTP and return token
+    // ====================================
+    // LOGIN - STEP 2: VERIFY OTP & RETURN TOKEN
+    // ====================================
     verifyLoginOTP: async (req, res) => {
         try {
             const { email, otp } = req.body;
 
-            // Verify OTP
             const verification = await otpService.verifyOTP(email, otp);
             if (!verification) {
                 return res.status(400).json({ message: 'Invalid or expired OTP.' });
             }
 
-            // Get user
             const user = await User.findById(verification.user_id);
             if (!user) {
                 return res.status(404).json({ message: 'User not found.' });
@@ -106,6 +175,33 @@ const authController = {
 
             // Generate token
             const token = generateToken(user.id, user.role);
+
+            // Record successful login
+            await Security.recordLogin({
+                user_id: user.id,
+                email: user.email,
+                full_name: user.full_name,
+                role: user.role,
+                action: 'LOGIN',
+                status: 'success',
+                ip_address: req.ip,
+                browser: req.headers['user-agent'],
+                device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+            });
+
+            // Audit log
+            await AuditLogModel.create({
+                email: user.email,
+                role: user.role,
+                action: 'LOGIN_SUCCESS',
+                type: 'authentication',
+                status: 'success',
+                description: `${user.role} logged in successfully`,
+                performed_by: user.id,
+                ip_address: req.ip,
+                browser: req.headers['user-agent']
+            });
 
             res.json({
                 message: 'Login successful.',
@@ -125,7 +221,9 @@ const authController = {
         }
     },
 
-    // Send OTP
+    // ====================================
+    // SEND OTP
+    // ====================================
     sendOTP: async (req, res) => {
         try {
             const { email } = req.body;
@@ -150,7 +248,9 @@ const authController = {
         }
     },
 
-    // Verify OTP
+    // ====================================
+    // VERIFY OTP (Account Activation)
+    // ====================================
     verifyOTP: async (req, res) => {
         try {
             const { email, otp } = req.body;
@@ -169,7 +269,9 @@ const authController = {
         }
     },
 
-    // Forgot Password
+    // ====================================
+    // FORGOT PASSWORD
+    // ====================================
     forgotPassword: async (req, res) => {
         try {
             const { email } = req.body;
@@ -194,7 +296,9 @@ const authController = {
         }
     },
 
-    // Reset Password
+    // ====================================
+    // RESET PASSWORD
+    // ====================================
     resetPassword: async (req, res) => {
         try {
             const { email, otp, new_password } = req.body;
@@ -216,7 +320,9 @@ const authController = {
         }
     },
 
-    // Get Profile
+    // ====================================
+    // GET PROFILE
+    // ====================================
     getProfile: async (req, res) => {
         try {
             const user = await User.findById(req.user.id);
@@ -231,10 +337,62 @@ const authController = {
         }
     },
 
-    // Logout
+    // ====================================
+    // LOGOUT (Secure - Blacklist Token)
+    // ====================================
     logout: async (req, res) => {
-        res.json({ message: 'Logout successful.' });
+        try {
+            const token = req.header('Authorization')?.replace('Bearer ', '');
+            const user = req.user;
+
+            if (!token) {
+                return res.status(400).json({ message: 'No token provided.' });
+            }
+
+            // Add token to blacklist
+            await TokenBlacklist.blacklist({
+                token: token,
+                user_id: user.id,
+                email: user.email || `${user.role}@lams.com`,
+                role: user.role
+            });
+
+            // Record logout in security logs
+            await Security.recordLogin({
+                user_id: user.id,
+                email: user.email || `${user.role}@lams.com`,
+                role: user.role,
+                action: 'LOGOUT',
+                status: 'success',
+                ip_address: req.ip,
+                browser: req.headers['user-agent'],
+                device: req.headers['sec-ch-ua-platform'] || 'Unknown',
+                operating_system: req.headers['sec-ch-ua-platform'] || 'Unknown'
+            });
+
+            // Audit log
+            await AuditLogModel.create({
+                email: user.email || `${user.role}@lams.com`,
+                role: user.role,
+                action: 'LOGOUT',
+                type: 'authentication',
+                status: 'success',
+                description: `${user.role} logged out successfully`,
+                performed_by: user.id,
+                ip_address: req.ip,
+                browser: req.headers['user-agent']
+            });
+
+            res.json({
+                success: true,
+                message: 'Logged out successfully. Token invalidated.'
+            });
+        } catch (error) {
+            console.error('Logout Error:', error);
+            res.status(500).json({ message: 'Server error during logout.' });
+        }
     }
 };
 
 module.exports = authController;
+

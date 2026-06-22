@@ -3,22 +3,14 @@ const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const rateLimit = require('express-rate-limit');
+const http = require('http');
+const { Server } = require('socket.io');
 require('dotenv').config();
 
 // Import Routes
 const authRoutes = require('./routes/authRoutes');
-const adminAuthRoutes = require('./routes/adminAuthRoutes');
-
-// Admin specific routes (MUST come before /api/admin)
-const adminCitizensRoutes = require('./routes/adminCitizensRoutes');
-const adminDocumentRoutes = require('./routes/adminDocumentRoutes');
-const adminPaymentRoutes = require('./routes/adminPaymentRoutes');
-
-// General admin routes (LAST among admin routes)
-const adminRoutes = require('./routes/adminRoutes');
-
-// Super Admin routes
 const superAdminRoutes = require('./routes/superAdminRoutes');
+const adminRoutes = require('./routes/adminRoutes');
 const citizenMonitoringRoutes = require('./routes/citizenMonitoringRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const auditLogRoutes = require('./routes/auditLogRoutes');
@@ -27,8 +19,30 @@ const securityRoutes = require('./routes/securityRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
+const adminAuthRoutes = require('./routes/adminAuthRoutes');
+const adminCitizensRoutes = require('./routes/adminCitizensRoutes');
+const adminDocumentRoutes = require('./routes/adminDocumentRoutes');
+const adminPaymentRoutes = require('./routes/adminPaymentRoutes');
+const adminAnnouncementRoutes = require('./routes/adminAnnouncementRoutes');
+const adminMessageRoutes = require('./routes/adminMessageRoutes');
+const adminReportRoutes = require('./routes/adminReportRoutes');
 
 const app = express();
+const server = http.createServer(app);
+
+// Socket.IO Setup
+const io = new Server(server, {
+    cors: {
+        origin: '*',
+        methods: ['GET', 'POST']
+    }
+});
+
+const { setupSocket } = require('./socket/socketHandler');
+setupSocket(io);
+
+// Make io accessible to routes
+app.set('io', io);
 
 // Security Middleware
 app.use(helmet());
@@ -37,32 +51,20 @@ app.use(morgan('dev'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// General Rate Limiting
+// Rate Limiting
 const limiter = rateLimit({
     windowMs: 15 * 60 * 1000,
     max: 100
 });
 app.use('/api/', limiter);
 
-// ==========================================
-// ROUTES — ORDER MATTERS!
-// Specific routes BEFORE general routes
-// ==========================================
+// Static files
+app.use('/uploads', express.static('uploads'));
 
-// Auth Routes
+// Routes
 app.use('/api/auth', authRoutes);
-app.use('/api/admin-auth', adminAuthRoutes);
-
-// Admin Specific Routes (BEFORE /api/admin)
-app.use('/api/admin/citizens', adminCitizensRoutes);
-app.use('/api/admin/documents', adminDocumentRoutes);
-app.use('/api/admin/payments', adminPaymentRoutes);
-
-// General Admin Route (LAST among admin)
-app.use('/api/admin', adminRoutes);
-
-// Super Admin Routes
 app.use('/api/super-admin', superAdminRoutes);
+app.use('/api/admin', adminRoutes);
 app.use('/api/super-admin/citizens', citizenMonitoringRoutes);
 app.use('/api/super-admin/reports', reportRoutes);
 app.use('/api/super-admin/audit-logs', auditLogRoutes);
@@ -71,6 +73,13 @@ app.use('/api/super-admin/security', securityRoutes);
 app.use('/api/super-admin/profile', profileRoutes);
 app.use('/api/super-admin/dashboard', dashboardRoutes);
 app.use('/api/super-admin/notifications', notificationRoutes);
+app.use('/api/admin-auth', adminAuthRoutes);
+app.use('/api/admin/citizens', adminCitizensRoutes);
+app.use('/api/admin/documents', adminDocumentRoutes);
+app.use('/api/admin/payments', adminPaymentRoutes);
+app.use('/api/admin/announcements', adminAnnouncementRoutes);
+app.use('/api/admin/messages', adminMessageRoutes);
+app.use('/api/admin/reports', adminReportRoutes);
 
 // Test Route
 app.get('/', (req, res) => {
@@ -88,8 +97,8 @@ app.use((err, req, res, next) => {
     res.status(500).json({ message: 'Internal server error' });
 });
 
-// Start Server
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => {
+server.listen(PORT, () => {
     console.log(`Server running on port ${PORT}`);
+    console.log(`Socket.IO ready for real-time communication`);
 });

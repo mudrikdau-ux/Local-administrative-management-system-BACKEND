@@ -16,7 +16,7 @@ const verifyAdminToken = async (req, res, next) => {
             return res.status(401).json({ message: 'Token has been invalidated. Please login again.' });
         }
 
-        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        const decoded = jwt.verify(token, process.env.JWT_SECRET, { clockTolerance: 30 });
         
         // Verify role is admin
         if (decoded.role !== 'admin') {
@@ -26,12 +26,13 @@ const verifyAdminToken = async (req, res, next) => {
         req.user = decoded;
         req.token = token;
         next();
-    } catch (error) {
-        console.error('Admin Auth Middleware Error:', error.message);
+       } catch (error) {
+        console.error('Admin Auth Middleware Error:', error.name, '-', error.message);
+        console.error('Full error:', error);
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({ message: 'Token has expired. Please login again.' });
         }
-        return res.status(401).json({ message: 'Invalid token.', error: error.message });
+        res.status(401).json({ message: 'Invalid token.', error: error.message });
     }
 };
 

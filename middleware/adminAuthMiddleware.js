@@ -27,10 +27,11 @@ const verifyAdminToken = async (req, res, next) => {
         req.token = token;
         next();
     } catch (error) {
+        console.error('Admin Auth Middleware Error:', error.message);
         if (error.name === 'TokenExpiredError') {
             return res.status(401).json({ message: 'Token has expired. Please login again.' });
         }
-        res.status(401).json({ message: 'Invalid token.' });
+        return res.status(401).json({ message: 'Invalid token.', error: error.message });
     }
 };
 

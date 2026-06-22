@@ -7,8 +7,18 @@ require('dotenv').config();
 
 // Import Routes
 const authRoutes = require('./routes/authRoutes');
-const superAdminRoutes = require('./routes/superAdminRoutes');
+const adminAuthRoutes = require('./routes/adminAuthRoutes');
+
+// Admin specific routes (MUST come before /api/admin)
+const adminCitizensRoutes = require('./routes/adminCitizensRoutes');
+const adminDocumentRoutes = require('./routes/adminDocumentRoutes');
+const adminPaymentRoutes = require('./routes/adminPaymentRoutes');
+
+// General admin routes (LAST among admin routes)
 const adminRoutes = require('./routes/adminRoutes');
+
+// Super Admin routes
+const superAdminRoutes = require('./routes/superAdminRoutes');
 const citizenMonitoringRoutes = require('./routes/citizenMonitoringRoutes');
 const reportRoutes = require('./routes/reportRoutes');
 const auditLogRoutes = require('./routes/auditLogRoutes');
@@ -17,7 +27,6 @@ const securityRoutes = require('./routes/securityRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const dashboardRoutes = require('./routes/dashboardRoutes');
 const notificationRoutes = require('./routes/notificationRoutes');
-const adminAuthRoutes = require('./routes/adminAuthRoutes');
 
 const app = express();
 
@@ -35,11 +44,25 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
-// Routes
+// ==========================================
+// ROUTES — ORDER MATTERS!
+// Specific routes BEFORE general routes
+// ==========================================
+
+// Auth Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/admin-auth', adminAuthRoutes);
-app.use('/api/super-admin', superAdminRoutes);
+
+// Admin Specific Routes (BEFORE /api/admin)
+app.use('/api/admin/citizens', adminCitizensRoutes);
+app.use('/api/admin/documents', adminDocumentRoutes);
+app.use('/api/admin/payments', adminPaymentRoutes);
+
+// General Admin Route (LAST among admin)
 app.use('/api/admin', adminRoutes);
+
+// Super Admin Routes
+app.use('/api/super-admin', superAdminRoutes);
 app.use('/api/super-admin/citizens', citizenMonitoringRoutes);
 app.use('/api/super-admin/reports', reportRoutes);
 app.use('/api/super-admin/audit-logs', auditLogRoutes);

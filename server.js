@@ -26,6 +26,8 @@ const adminPaymentRoutes = require('./routes/adminPaymentRoutes');
 const adminAnnouncementRoutes = require('./routes/adminAnnouncementRoutes');
 const adminMessageRoutes = require('./routes/adminMessageRoutes');
 const adminReportRoutes = require('./routes/adminReportRoutes');
+const adminProfileRoutes = require('./routes/adminProfileRoutes');
+const adminSettingsRoutes = require('./routes/adminSettingsRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -61,10 +63,32 @@ app.use('/api/', limiter);
 // Static files
 app.use('/uploads', express.static('uploads'));
 
-// Routes
+// ============================================
+// ROUTES - ORDER MATTERS!
+// Specific routes MUST come before generic routes
+// ============================================
+
+// Public Auth
 app.use('/api/auth', authRoutes);
-app.use('/api/super-admin', superAdminRoutes);
+
+// Admin Auth (separate from admin panel)
+app.use('/api/admin-auth', adminAuthRoutes);
+
+// Admin Panel Routes (specific paths - MUST be before /api/admin)
+app.use('/api/admin/profile', adminProfileRoutes);
+app.use('/api/admin/citizens', adminCitizensRoutes);
+app.use('/api/admin/documents', adminDocumentRoutes);
+app.use('/api/admin/payments', adminPaymentRoutes);
+app.use('/api/admin/announcements', adminAnnouncementRoutes);
+app.use('/api/admin/messages', adminMessageRoutes);
+app.use('/api/admin/reports', adminReportRoutes);
+app.use('/api/admin/settings', adminSettingsRoutes);
+
+// Generic admin/super-admin routes (catches /:id patterns - MUST be last)
 app.use('/api/admin', adminRoutes);
+app.use('/api/super-admin', superAdminRoutes);
+
+// Super Admin Panel Routes
 app.use('/api/super-admin/citizens', citizenMonitoringRoutes);
 app.use('/api/super-admin/reports', reportRoutes);
 app.use('/api/super-admin/audit-logs', auditLogRoutes);
@@ -73,13 +97,6 @@ app.use('/api/super-admin/security', securityRoutes);
 app.use('/api/super-admin/profile', profileRoutes);
 app.use('/api/super-admin/dashboard', dashboardRoutes);
 app.use('/api/super-admin/notifications', notificationRoutes);
-app.use('/api/admin-auth', adminAuthRoutes);
-app.use('/api/admin/citizens', adminCitizensRoutes);
-app.use('/api/admin/documents', adminDocumentRoutes);
-app.use('/api/admin/payments', adminPaymentRoutes);
-app.use('/api/admin/announcements', adminAnnouncementRoutes);
-app.use('/api/admin/messages', adminMessageRoutes);
-app.use('/api/admin/reports', adminReportRoutes);
 
 // Test Route
 app.get('/', (req, res) => {

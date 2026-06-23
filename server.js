@@ -28,6 +28,7 @@ const adminMessageRoutes = require('./routes/adminMessageRoutes');
 const adminReportRoutes = require('./routes/adminReportRoutes');
 const adminProfileRoutes = require('./routes/adminProfileRoutes');
 const adminSettingsRoutes = require('./routes/adminSettingsRoutes');
+const adminDashboardRoutes = require('./routes/adminDashboardRoutes');
 
 const app = express();
 const server = http.createServer(app);
@@ -83,6 +84,7 @@ app.use('/api/admin/announcements', adminAnnouncementRoutes);
 app.use('/api/admin/messages', adminMessageRoutes);
 app.use('/api/admin/reports', adminReportRoutes);
 app.use('/api/admin/settings', adminSettingsRoutes);
+app.use('/api/admin/dashboard', adminDashboardRoutes);
 
 // Generic admin/super-admin routes (catches /:id patterns - MUST be last)
 app.use('/api/admin', adminRoutes);

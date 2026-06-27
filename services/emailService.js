@@ -159,6 +159,77 @@ const sendReportEmail = async (recipientEmail, report, generatedByName) => {
     await transporter.sendMail(mailOptions);
 };
 
+// Send acknowledgment to contact form sender
+const sendContactAcknowledgment = async (recipientEmail, fullName, subject) => {
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: recipientEmail,
+        subject: 'Thank you for contacting LAMS',
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px;">
+                <div style="text-align: center; margin-bottom: 20px;">
+                    <h2 style="color: #1a5276;">🏛️ LAMS</h2>
+                    <p style="color: #666;">Local Administration Management System</p>
+                </div>
+                
+                <h3 style="color: #333;">Dear ${fullName},</h3>
+                
+                <p style="color: #555; line-height: 1.6;">
+                    Thank you for contacting the Local Administration Management System (LAMS).
+                </p>
+                
+                <p style="color: #555; line-height: 1.6;">
+                    We have received your message regarding "<strong>${subject}</strong>" and our team will respond as soon as possible.
+                </p>
+                
+                <p style="color: #555; line-height: 1.6;">
+                    Your reference number is: <strong>MSG-${Date.now()}</strong>
+                </p>
+                
+                <p style="color: #555; line-height: 1.6;">
+                    For urgent matters, please visit your local ward administration office.
+                </p>
+                
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e0e0e0;">
+                    <p style="color: #555;">Regards,<br><strong>LAMS Team</strong></p>
+                </div>
+                
+                <p style="color: #999; font-size: 12px; text-align: center; margin-top: 20px;">
+                    This is an automated acknowledgment. Please do not reply to this email.
+                </p>
+            </div>
+        `
+    };
+
+    await transporter.sendMail(mailOptions);
+};
+
+// Send notification to admin about new contact message
+const sendAdminNotification = async (adminEmail, fullName, email, phone, subject, message) => {
+    const mailOptions = {
+        from: process.env.EMAIL_USER,
+        to: adminEmail,
+        subject: `New Contact Message: ${subject}`,
+        html: `
+            <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+                <h3 style="color: #1a5276;">New Contact Form Submission</h3>
+                <table style="width: 100%; border-collapse: collapse;">
+                    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">From:</td><td style="padding: 8px; border: 1px solid #ddd;">${fullName}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Email:</td><td style="padding: 8px; border: 1px solid #ddd;">${email}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Phone:</td><td style="padding: 8px; border: 1px solid #ddd;">${phone}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Subject:</td><td style="padding: 8px; border: 1px solid #ddd;">${subject}</td></tr>
+                    <tr><td style="padding: 8px; border: 1px solid #ddd; font-weight: bold;">Message:</td><td style="padding: 8px; border: 1px solid #ddd;">${message}</td></tr>
+                </table>
+                <p style="color: #666; margin-top: 20px;">Login to the admin panel to respond to this message.</p>
+            </div>
+        `
+    };
+
+    await transporter.sendMail(mailOptions);
+};
+
+// Update module.exports to include new functions
+// Add these to the existing module.exports object
 // Send password reset notification to citizen
 const sendPasswordResetNotification = async (email, citizenName, tempPassword) => {
     const mailOptions = {
@@ -203,5 +274,7 @@ module.exports = {
     sendResetPasswordEmail, 
     sendWelcomeEmail, 
     sendReportEmail, 
-    sendPasswordResetNotification 
+    sendPasswordResetNotification,
+    sendContactAcknowledgment,
+    sendAdminNotification
 };

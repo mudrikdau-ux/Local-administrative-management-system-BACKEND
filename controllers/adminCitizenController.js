@@ -4,11 +4,12 @@ const { body, validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const { generateOTP } = require('../utils/helpers');
 const { sendWelcomeEmail, sendPasswordResetNotification } = require('../services/emailService');
+const { withTransaction } = require('../utils/transactionHelper');
 const pool = require('../config/db');
 
 const adminCitizenController = {
     // ====================================
-    // CREATE CITIZEN (With Welcome Email)
+    // CREATE CITIZEN (With Transaction & Welcome Email)
     // ====================================
     createCitizen: [
         body('full_name').trim().notEmpty().withMessage('Full name is required.'),
@@ -34,7 +35,6 @@ const adminCitizenController = {
                         return res.status(400).json({ success: false, message: 'Email already registered.' });
                     }
 
-                    // Also check users table for duplicate email
                     const [userExists] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
                     if (userExists.length > 0) {
                         return res.status(400).json({ success: false, message: 'Email already registered in the system.' });
@@ -47,59 +47,52 @@ const adminCitizenController = {
                     return res.status(400).json({ success: false, message: 'Phone number already registered.' });
                 }
 
-                // Generate temporary password and create user account if email provided
-                let userId = null;
-                let tempPassword = null;
-                let emailSent = false;
+                // Use transaction for atomic operation
+                const result = await withTransaction(async (connection) => {
+                    let userId = null;
+                    let tempPassword = null;
 
-                if (email) {
-                    tempPassword = generateOTP() + 'Ctz';
-                    const salt = await bcrypt.genSalt(12);
-                    const hashedPassword = await bcrypt.hash(tempPassword, salt);
+                    // Create user account if email provided
+                    if (email) {
+                        tempPassword = generateOTP() + 'Ctz';
+                        const salt = await bcrypt.genSalt(12);
+                        const hashedPassword = await bcrypt.hash(tempPassword, salt);
 
-                    // Create user account
-                    const User = require('../models/User');
-                    userId = await User.create({
-                        full_name,
-                        email,
-                        phone,
-                        password: hashedPassword,
-                        role: 'citizen'
-                    });
+                        const [userResult] = await connection.execute(
+                            'INSERT INTO users (full_name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+                            [full_name, email, phone, hashedPassword, 'citizen', 'active']
+                        );
+                        userId = userResult.insertId;
 
-                    // Mark as temporary password
-                    await pool.execute(
-                        'UPDATE users SET temp_password = ?, password_changed = FALSE WHERE id = ?',
-                        [tempPassword, userId]
+                        await connection.execute(
+                            'UPDATE users SET temp_password = ?, password_changed = FALSE WHERE id = ?',
+                            [tempPassword, userId]
+                        );
+                    }
+
+                    // Create citizen record
+                    const [citizenResult] = await connection.execute(
+                        `INSERT INTO citizens (full_name, email, phone, address, status, ward_id, created_by, registration_date, user_id) 
+                         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                        [full_name, email || null, phone, address || null, status || 'active', wardId, adminId,
+                         registration_date || new Date().toISOString().split('T')[0], userId]
                     );
 
-                    // Send welcome email
+                    return { userId, citizenId: citizenResult.insertId, tempPassword };
+                });
+
+                // Send welcome email (outside transaction)
+                let emailSent = false;
+                if (email && result.tempPassword) {
                     try {
-                        await sendWelcomeEmail(email, full_name, tempPassword, wardName);
+                        await sendWelcomeEmail(email, full_name, result.tempPassword, wardName);
                         emailSent = true;
                     } catch (emailError) {
                         console.log('Welcome email not sent:', emailError.message);
                         console.log(`========================================`);
-                        console.log(`Citizen Temp Password for ${email}: ${tempPassword}`);
+                        console.log(`Citizen Temp Password for ${email}: ${result.tempPassword}`);
                         console.log(`========================================`);
                     }
-                }
-
-                // Create citizen record
-                const citizenId = await AdminCitizen.create({
-                    full_name,
-                    email: email || null,
-                    phone,
-                    address: address || null,
-                    status: status || 'active',
-                    ward_id: wardId,
-                    created_by: adminId,
-                    registration_date: registration_date || new Date().toISOString().split('T')[0]
-                });
-
-                // Link citizen to user account
-                if (userId) {
-                    await pool.execute('UPDATE citizens SET user_id = ? WHERE id = ?', [userId, citizenId]);
                 }
 
                 // Audit log
@@ -111,8 +104,8 @@ const adminCitizenController = {
                     status: 'success',
                     description: `Citizen registered: ${full_name}${email ? ' (Account created with welcome email)' : ''}`,
                     entity_type: 'citizen',
-                    entity_id: citizenId,
-                    new_values: { full_name, email, phone, address, status, account_created: !!userId },
+                    entity_id: result.citizenId,
+                    new_values: { full_name, email, phone, address, status, account_created: !!result.userId },
                     performed_by: req.user.id,
                     ip_address: req.ip
                 });
@@ -120,11 +113,11 @@ const adminCitizenController = {
                 res.status(201).json({
                     success: true,
                     message: 'Citizen registered successfully.',
-                    citizen_id: citizenId,
-                    user_id: userId,
-                    account_created: !!userId,
+                    citizen_id: result.citizenId,
+                    user_id: result.userId,
+                    account_created: !!result.userId,
                     welcome_email_sent: emailSent,
-                    temporary_password: email ? tempPassword : null
+                    temporary_password: email ? result.tempPassword : null
                 });
             } catch (error) {
                 console.error('Create Citizen Error:', error);
@@ -212,26 +205,22 @@ const adminCitizenController = {
                 const wardId = req.user.ward_id;
                 const { full_name, email, phone, address, status } = req.body;
 
-                // Check if citizen exists in admin's ward
                 const existing = await AdminCitizen.getById(id, wardId);
                 if (!existing) {
                     return res.status(404).json({ success: false, message: 'Citizen not found.' });
                 }
 
-                // Check duplicate email
                 if (email && email !== existing.email) {
                     const emailExists = await AdminCitizen.getByEmail(email, id);
                     if (emailExists) {
                         return res.status(400).json({ success: false, message: 'Email already in use.' });
                     }
-                    // Also check users table
                     const [userExists] = await pool.execute('SELECT id FROM users WHERE email = ? AND id != ?', [email, existing.user_id || 0]);
                     if (userExists.length > 0) {
                         return res.status(400).json({ success: false, message: 'Email already registered in the system.' });
                     }
                 }
 
-                // Check duplicate phone
                 if (phone !== existing.phone) {
                     const phoneExists = await AdminCitizen.getByPhone(phone, id);
                     if (phoneExists) {
@@ -252,13 +241,11 @@ const adminCitizenController = {
                     return res.status(500).json({ success: false, message: 'Failed to update citizen.' });
                 }
 
-                // Sync user account email if changed and user account exists
                 if (email && email !== existing.email && existing.user_id) {
                     await pool.execute('UPDATE users SET email = ?, full_name = ?, phone = ? WHERE id = ?', 
                         [email, full_name, phone, existing.user_id]);
                 }
 
-                // Audit log
                 await AuditLogModel.create({
                     email: req.user.email,
                     role: 'admin',
@@ -290,9 +277,7 @@ const adminCitizenController = {
             const { id } = req.params;
             const wardId = req.user.ward_id;
 
-            // Find citizen in admin's ward
             const citizen = await AdminCitizen.getById(id, wardId);
-            
             if (!citizen) {
                 return res.status(404).json({ success: false, message: 'Citizen not found.' });
             }
@@ -301,7 +286,6 @@ const adminCitizenController = {
                 return res.status(400).json({ success: false, message: 'This citizen does not have an email address.' });
             }
 
-            // Check if citizen has a user account
             const [userRows] = await pool.execute(
                 'SELECT id FROM users WHERE email = ? AND role = ?',
                 [citizen.email, 'citizen']
@@ -313,14 +297,12 @@ const adminCitizenController = {
             const hashedPassword = await bcrypt.hash(tempPassword, salt);
 
             if (userRows.length > 0) {
-                // Update existing user password
                 userId = userRows[0].id;
                 await pool.execute(
                     'UPDATE users SET password = ?, temp_password = ?, password_changed = FALSE WHERE id = ?',
                     [hashedPassword, tempPassword, userId]
                 );
             } else {
-                // Create new user account
                 const User = require('../models/User');
                 userId = await User.create({
                     full_name: citizen.full_name,
@@ -332,7 +314,6 @@ const adminCitizenController = {
                 await pool.execute('UPDATE citizens SET user_id = ? WHERE id = ?', [userId, citizen.id]);
             }
 
-            // Send password reset notification
             let emailSent = false;
             try {
                 await sendPasswordResetNotification(citizen.email, citizen.full_name, tempPassword);
@@ -344,7 +325,6 @@ const adminCitizenController = {
                 console.log(`========================================`);
             }
 
-            // Audit log
             await AuditLogModel.create({
                 email: req.user.email,
                 role: 'admin',
@@ -389,7 +369,6 @@ const adminCitizenController = {
                 return res.status(500).json({ success: false, message: 'Failed to delete citizen.' });
             }
 
-            // Audit log
             await AuditLogModel.create({
                 email: req.user.email,
                 role: 'admin',

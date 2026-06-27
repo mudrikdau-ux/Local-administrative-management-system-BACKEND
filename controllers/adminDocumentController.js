@@ -1,5 +1,6 @@
 const AdminDocument = require('../models/AdminDocument');
 const AuditLogModel = require('../models/AuditLogModel');
+const docVerifyService = require('../services/documentVerificationService');
 const fs = require('fs');
 const path = require('path');
 
@@ -39,6 +40,9 @@ const adminDocumentController = {
                 return res.status(404).json({ success: false, message: 'Document request not found.' });
             }
 
+            // Get verification info if exists
+            const verification = await docVerifyService.getByDocumentId(document.id);
+
             // Audit log
             await AuditLogModel.create({
                 email: req.user.email,
@@ -53,7 +57,7 @@ const adminDocumentController = {
                 ip_address: req.ip
             });
 
-            res.json({ success: true, document });
+            res.json({ success: true, document, verification: verification || null });
         } catch (error) {
             console.error('Get Document Error:', error);
             res.status(500).json({ success: false, message: 'Server error.' });
@@ -70,7 +74,6 @@ const adminDocumentController = {
             // Check if request exists
             const document = await AdminDocument.getById(request_id);
             if (!document) {
-                // Delete uploaded file if request doesn't exist
                 if (req.file) fs.unlinkSync(req.file.path);
                 return res.status(404).json({ success: false, message: 'Document request not found.' });
             }
@@ -125,7 +128,7 @@ const adminDocumentController = {
     },
 
     // ====================================
-    // SEND DOCUMENT TO CITIZEN
+    // SEND DOCUMENT TO CITIZEN (With Verification)
     // ====================================
     sendDocument: async (req, res) => {
         try {
@@ -166,6 +169,16 @@ const adminDocumentController = {
                 return res.status(500).json({ success: false, message: 'Failed to send document.' });
             }
 
+            // Generate document verification code and QR
+            let verification = null;
+            try {
+                const baseUrl = process.env.BASE_URL || 'http://localhost:5000';
+                const verifyUrl = `${baseUrl}/api/public/verify-document/`;
+                verification = await docVerifyService.createVerification(request_id, verifyUrl);
+            } catch (vErr) {
+                console.error('Verification generation error:', vErr.message);
+            }
+
             // Audit log
             await AuditLogModel.create({
                 email: req.user.email,
@@ -189,7 +202,11 @@ const adminDocumentController = {
                     document_type: document.document_type,
                     file_path: document.file_path,
                     sent_at: new Date().toISOString()
-                }
+                },
+                verification: verification ? {
+                    code: verification.code,
+                    qr_code_path: verification.qrPath
+                } : null
             });
         } catch (error) {
             console.error('Send Document Error:', error);
@@ -217,7 +234,6 @@ const adminDocumentController = {
                 return res.status(404).json({ success: false, message: 'Document file not found on server.' });
             }
 
-            // Set appropriate content type
             const contentTypes = {
                 'application/pdf': 'application/pdf',
                 'image/jpeg': 'image/jpeg',

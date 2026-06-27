@@ -2,7 +2,10 @@ const express = require('express');
 const router = express.Router();
 const dashboardController = require('../controllers/dashboardController');
 
+// Full Dashboard Data (All in one call)
 router.get('/', dashboardController.getFullDashboard);
+
+// Individual Endpoints
 router.get('/statistics', dashboardController.getStatistics);
 router.get('/leadership', dashboardController.getLeadership);
 router.get('/activities', dashboardController.getActivities);

@@ -1,251 +1,430 @@
-﻿const PDFDocument = require("pdfkit");
-const fs = require("fs");
-const path = require("path");
-
-const BLUE = "#1a3c5e";
-const DARK = "#2c3e50";
-const GRAY = "#7f8c8d";
-const LIGHT_BG = "#f5f6fa";
-const WHITE = "#ffffff";
-const BORDER = "#dcdde1";
+const PDFDocument = require('pdfkit');
+const fs = require('fs');
+const path = require('path');
 
 const pdfService = {
+    // Generate Citizen Report PDF
     generateCitizenReport: (data, filters = {}) => {
         return new Promise((resolve, reject) => {
-            const fileName = "Citizen_Report_" + Date.now() + ".pdf";
-            const filePath = path.join(__dirname, "../uploads/documents", fileName);
-            const doc = new PDFDocument({ margin: 45, size: "A4" });
+            const fileName = `Citizen_Report_${Date.now()}.pdf`;
+            const filePath = path.join(__dirname, '../uploads/documents', fileName);
+            const doc = new PDFDocument({ margin: 40, size: 'A4' });
             const stream = fs.createWriteStream(filePath);
+
             doc.pipe(stream);
-            pdfService.renderHeader(doc, "CITIZEN REPORT");
-            pdfService.renderSummaryLine(doc, "Total Records", data.total);
-            if (Object.keys(filters).length > 0) pdfService.renderFilters(doc, filters);
-            doc.moveDown(0.5);
-            if (data.citizens && data.citizens.length > 0) {
-                pdfService.renderTable(doc, data.citizens, ["Full Name", "Email", "Phone", "Ward", "Status"], [22, 105, 135, 85, 80, 60], (c) => [c.full_name||"", c.email||"", c.phone||"", c.ward_name||"", c.status||""]);
+
+            pdfService.addHeader(doc, 'CITIZEN REPORT');
+
+            if (Object.keys(filters).length > 0) {
+                doc.fontSize(9).fillColor('#666666').text('Filters Applied:');
+                if (filters.ward_name) doc.text(`Ward: ${filters.ward_name}`);
+                if (filters.status) doc.text(`Status: ${filters.status}`);
+                doc.moveDown(0.5);
             }
-            pdfService.renderFooter(doc);
+
+            doc.fontSize(11).fillColor('#333333').text(`Total Citizens: ${data.total}`, { underline: true });
+            doc.moveDown(1);
+
+            if (data.citizens && data.citizens.length > 0) {
+                pdfService.drawCitizenTable(doc, data.citizens);
+            } else {
+                doc.fontSize(11).fillColor('#999999').text('No citizens found.');
+            }
+
+            pdfService.addFooter(doc);
+
             doc.end();
-            stream.on("finish", () => resolve({ filePath, fileName }));
-            stream.on("error", reject);
+
+            stream.on('finish', () => resolve({ filePath, fileName }));
+            stream.on('error', reject);
         });
     },
 
+    // Generate Admin Report PDF
     generateAdminReport: (data, filters = {}) => {
         return new Promise((resolve, reject) => {
-            const fileName = "Admin_Report_" + Date.now() + ".pdf";
-            const filePath = path.join(__dirname, "../uploads/documents", fileName);
-            const doc = new PDFDocument({ margin: 45, size: "A4" });
+            const fileName = `Admin_Report_${Date.now()}.pdf`;
+            const filePath = path.join(__dirname, '../uploads/documents', fileName);
+            const doc = new PDFDocument({ margin: 40, size: 'A4' });
             const stream = fs.createWriteStream(filePath);
+
             doc.pipe(stream);
-            pdfService.renderHeader(doc, "ADMINISTRATOR REPORT");
-            pdfService.renderSummaryLine(doc, "Total Records", data.total);
-            if (Object.keys(filters).length > 0) pdfService.renderFilters(doc, filters);
-            doc.moveDown(0.5);
-            if (data.admins && data.admins.length > 0) {
-                pdfService.renderTable(doc, data.admins, ["Full Name", "Email", "Phone", "Ward", "Position", "Status"], [22, 90, 120, 80, 75, 55, 45], (a) => [a.full_name||"", a.email||"", a.phone||"", a.ward_name||"", a.position_name||"", a.status||""]);
+
+            pdfService.addHeader(doc, 'ADMINISTRATOR REPORT');
+
+            if (Object.keys(filters).length > 0) {
+                doc.fontSize(9).fillColor('#666666').text('Filters Applied:');
+                if (filters.ward_name) doc.text(`Ward: ${filters.ward_name}`);
+                if (filters.status) doc.text(`Status: ${filters.status}`);
+                doc.moveDown(0.5);
             }
-            pdfService.renderFooter(doc);
+
+            doc.fontSize(11).fillColor('#333333').text(`Total Admins: ${data.total}`, { underline: true });
+            doc.moveDown(1);
+
+            if (data.admins && data.admins.length > 0) {
+                pdfService.drawAdminTable(doc, data.admins);
+            } else {
+                doc.fontSize(11).fillColor('#999999').text('No admins found.');
+            }
+
+            pdfService.addFooter(doc);
+
             doc.end();
-            stream.on("finish", () => resolve({ filePath, fileName }));
-            stream.on("error", reject);
+
+            stream.on('finish', () => resolve({ filePath, fileName }));
+            stream.on('error', reject);
         });
     },
 
+    // Generate Audit Report PDF
     generateAuditReport: (data, filters = {}) => {
         return new Promise((resolve, reject) => {
-            const fileName = "Audit_Report_" + Date.now() + ".pdf";
-            const filePath = path.join(__dirname, "../uploads/documents", fileName);
-            const doc = new PDFDocument({ margin: 45, size: "A4", layout: "landscape" });
+            const fileName = `Audit_Report_${Date.now()}.pdf`;
+            const filePath = path.join(__dirname, '../uploads/documents', fileName);
+            const doc = new PDFDocument({ margin: 40, size: 'A4', layout: 'landscape' });
             const stream = fs.createWriteStream(filePath);
+
             doc.pipe(stream);
-            pdfService.renderHeader(doc, "AUDIT LOG REPORT");
-            pdfService.renderSummaryLine(doc, "Total Records", data.total);
-            if (Object.keys(filters).length > 0) pdfService.renderFilters(doc, filters);
-            doc.moveDown(0.5);
-            if (data.logs && data.logs.length > 0) {
-                pdfService.renderTable(doc, data.logs, ["Action", "Entity Type", "Entity ID", "Date", "Description"], [22, 100, 65, 50, 80, 200], (l) => [l.action||"", l.entity_type||"", l.entity_id?String(l.entity_id):"", l.created_at?new Date(l.created_at).toLocaleDateString():"", l.description||""]);
+
+            pdfService.addHeader(doc, 'AUDIT LOG REPORT');
+
+            if (Object.keys(filters).length > 0) {
+                doc.fontSize(9).fillColor('#666666').text('Filters Applied:');
+                if (filters.action) doc.text(`Action: ${filters.action}`);
+                doc.moveDown(0.5);
             }
-            pdfService.renderFooter(doc);
+
+            doc.fontSize(11).fillColor('#333333').text(`Total Audit Logs: ${data.total}`, { underline: true });
+            doc.moveDown(1);
+
+            if (data.logs && data.logs.length > 0) {
+                pdfService.drawAuditTable(doc, data.logs);
+            } else {
+                doc.fontSize(11).fillColor('#999999').text('No audit logs found.');
+            }
+
+            pdfService.addFooter(doc);
+
             doc.end();
-            stream.on("finish", () => resolve({ filePath, fileName }));
-            stream.on("error", reject);
+
+            stream.on('finish', () => resolve({ filePath, fileName }));
+            stream.on('error', reject);
         });
     },
 
+    // Generate Full System Report PDF
     generateFullSystemReport: (data) => {
         return new Promise((resolve, reject) => {
-            const fileName = "Full_System_Report_" + Date.now() + ".pdf";
-            const filePath = path.join(__dirname, "../uploads/documents", fileName);
-            const doc = new PDFDocument({ margin: 45, size: "A4" });
+            const fileName = `Full_System_Report_${Date.now()}.pdf`;
+            const filePath = path.join(__dirname, '../uploads/documents', fileName);
+            const doc = new PDFDocument({ margin: 40, size: 'A4' });
             const stream = fs.createWriteStream(filePath);
-            doc.pipe(stream);
-            pdfService.renderHeader(doc, "FULL SYSTEM REPORT");
 
-            doc.fontSize(13).fillColor(BLUE).text("1. System Overview", { underline: true });
+            doc.pipe(stream);
+
+            pdfService.addHeader(doc, 'FULL SYSTEM REPORT');
+
+            // Section 1: System Overview
+            doc.fontSize(13).fillColor('#1a5276').text('1. SYSTEM OVERVIEW', { underline: true });
             doc.moveDown(0.3);
-            pdfService.renderSummaryCard(doc, [
-                { label: "Total Citizens", value: data.overview.citizens.total },
-                { label: "Active Citizens", value: data.overview.citizens.active },
-                { label: "Inactive Citizens", value: data.overview.citizens.inactive },
-                { label: "Total Admins", value: data.overview.admins.total },
-                { label: "Active Admins", value: data.overview.admins.active },
-                { label: "Suspended Admins", value: data.overview.admins.suspended },
-                { label: "Total Wards", value: data.overview.wards.total },
-                { label: "Audit Logs", value: data.overview.audit_logs.total }
-            ]);
+            doc.fontSize(10).fillColor('#333333');
+            doc.text(`Total Citizens: ${data.overview.citizens.total}   |   Active: ${data.overview.citizens.active}   |   Inactive: ${data.overview.citizens.inactive}`);
+            doc.text(`Total Admins: ${data.overview.admins.total}   |   Active: ${data.overview.admins.active}   |   Suspended: ${data.overview.admins.suspended}   |   Inactive: ${data.overview.admins.inactive}`);
+            doc.text(`Total Wards: ${data.overview.wards.total}`);
+            doc.text(`Total Audit Logs: ${data.overview.audit_logs.total}`);
+            doc.text(`Total Reports Generated: ${data.overview.reports.total}`);
             doc.moveDown(0.8);
 
-            pdfService.newSection(doc, "2. Ward Breakdown");
+            // Section 2: Ward Breakdown
+            if (doc.y > 650) doc.addPage();
+            doc.fontSize(13).fillColor('#1a5276').text('2. WARD BREAKDOWN', { underline: true });
+            doc.moveDown(0.3);
             if (data.wardComparison && data.wardComparison.length > 0) {
-                pdfService.renderWardCards(doc, data.wardComparison);
+                pdfService.drawWardTable(doc, data.wardComparison);
             }
-            doc.moveDown(0.5);
 
-            pdfService.newSection(doc, "3. Recent Citizens");
+            // Section 3: Recent Citizens
+            if (doc.y > 600) doc.addPage();
+            doc.fontSize(13).fillColor('#1a5276').text('3. RECENT CITIZENS', { underline: true });
+            doc.moveDown(0.3);
             if (data.citizens && data.citizens.length > 0) {
-                pdfService.renderTable(doc, data.citizens.slice(0, 5), ["Full Name", "Email", "Phone", "Ward", "Status"], [22, 105, 135, 85, 80, 60], (c) => [c.full_name||"", c.email||"", c.phone||"", c.ward_name||"", c.status||""]);
+                pdfService.drawCitizenTable(doc, data.citizens.slice(0, 8));
             }
 
-            pdfService.newSection(doc, "4. Recent Administrators");
+            // Section 4: Recent Admins
+            if (doc.y > 600) doc.addPage();
+            doc.fontSize(13).fillColor('#1a5276').text('4. RECENT ADMINISTRATORS', { underline: true });
+            doc.moveDown(0.3);
             if (data.admins && data.admins.length > 0) {
-                pdfService.renderTable(doc, data.admins.slice(0, 5), ["Full Name", "Email", "Phone", "Ward", "Position", "Status"], [22, 90, 120, 80, 75, 55, 45], (a) => [a.full_name||"", a.email||"", a.phone||"", a.ward_name||"", a.position_name||"", a.status||""]);
+                pdfService.drawAdminTable(doc, data.admins.slice(0, 8));
             }
 
-            pdfService.renderFooter(doc);
+            pdfService.addFooter(doc);
+
             doc.end();
-            stream.on("finish", () => resolve({ filePath, fileName }));
-            stream.on("error", reject);
+
+            stream.on('finish', () => resolve({ filePath, fileName }));
+            stream.on('error', reject);
         });
     },
 
-    renderHeader: (doc, title) => {
-        doc.rect(0, 0, doc.page.width, 95).fill(BLUE);
-        doc.fontSize(24).fillColor(WHITE).font("Helvetica-Bold").text("LAMS", 45, 18);
-        doc.fontSize(10).fillColor("#a0bcd8").font("Helvetica").text("Local Administration Management System", 45, 44);
-        doc.fontSize(16).fillColor(WHITE).font("Helvetica-Bold").text(title, 45, 64);
-        doc.fontSize(8).fillColor("#a0bcd8").text("Generated: " + new Date().toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", hour: "2-digit", minute: "2-digit" }), { align: "right" });
-        doc.moveDown(1.5);
+    // Header helper
+    addHeader: (doc, title) => {
+        doc.fontSize(20).fillColor('#1a5276').text('LAMS', { align: 'center' });
+        doc.fontSize(9).fillColor('#666666').text('Local Administration Management System', { align: 'center' });
+        doc.moveDown(0.3);
+        doc.fontSize(14).fillColor('#333333').text(title, { align: 'center' });
+        doc.moveDown(0.3);
+        doc.fontSize(8).fillColor('#999999').text(`Generated: ${new Date().toLocaleString()}`, { align: 'center' });
+        doc.moveDown(0.5);
+        doc.strokeColor('#cccccc').lineWidth(1).moveTo(40, doc.y).lineTo(555, doc.y).stroke();
+        doc.moveDown(0.5);
     },
 
-    renderFooter: (doc) => {
-        var pages = doc.bufferedPageRange().count;
-        for (var i = 0; i < pages; i++) {
+    // Footer helper
+    addFooter: (doc) => {
+        const totalPages = doc.bufferedPageRange().count;
+        for (let i = 0; i < totalPages; i++) {
             doc.switchToPage(i);
-            var bottom = doc.page.height - 35;
-            doc.rect(0, bottom - 5, doc.page.width, 0.5).fill(BORDER);
-            doc.fontSize(7).fillColor(GRAY).font("Helvetica");
-            doc.text("LAMS - Local Administration Management System", 45, bottom + 2);
-            doc.text("Page " + (i + 1) + " of " + pages, { align: "right" });
+            const bottom = doc.page.height - 40;
+            doc.fontSize(7).fillColor('#999999');
+            doc.text(`Page ${i + 1} of ${totalPages}`, 40, bottom, { align: 'center', width: 500 });
+            doc.text('LAMS - Local Administration Management System - Confidential', 40, bottom + 10, { align: 'center', width: 500 });
         }
     },
 
-    renderSummaryLine: (doc, label, value) => {
-        doc.fontSize(10).fillColor(DARK).font("Helvetica-Bold").text(label + ": " + value);
-        doc.moveDown(0.2);
-    },
+    // Citizen table
+    drawCitizenTable: (doc, citizens) => {
+        const tableTop = doc.y;
+        const colWidths = [25, 90, 140, 90, 80, 55];
+        const headers = ['#', 'Full Name', 'Email', 'Phone', 'Ward', 'Status'];
 
-    renderFilters: (doc, filters) => {
-        doc.fontSize(8).fillColor(GRAY).text("Filters: " + JSON.stringify(filters));
-        doc.moveDown(0.3);
-    },
-
-    renderSummaryCard: (doc, items) => {
-        var startY = doc.y;
-        var x = 45;
-        var cardWidth = 116;
-        var cardHeight = 38;
-        var cols = 4;
-        items.forEach(function(item, i) {
-            var col = i % cols;
-            var row = Math.floor(i / cols);
-            var cx = x + (col * (cardWidth + 8));
-            var cy = startY + (row * (cardHeight + 6));
-            if (cy + cardHeight > doc.page.height - 50) { doc.addPage(); startY = 50; cy = startY; }
-            doc.rect(cx, cy, cardWidth, cardHeight).fill(LIGHT_BG).stroke(BORDER);
-            doc.fontSize(7).fillColor(GRAY).font("Helvetica").text(item.label, cx + 6, cy + 5, { width: cardWidth - 12 });
-            doc.fontSize(14).fillColor(BLUE).font("Helvetica-Bold").text(String(item.value), cx + 6, cy + 18, { width: cardWidth - 12 });
-        });
-        doc.y = startY + (Math.ceil(items.length / cols) * (cardHeight + 6)) + 6;
-    },
-
-    renderWardCards: (doc, wards) => {
-        var startY = doc.y;
-        var x = 45;
-        var cardWidth = 116;
-        var cardHeight = 52;
-        var cols = 4;
-        wards.forEach(function(ward, i) {
-            var col = i % cols;
-            var row = Math.floor(i / cols);
-            var cx = x + (col * (cardWidth + 8));
-            var cy = startY + (row * (cardHeight + 6));
-            if (cy + cardHeight > doc.page.height - 50) { doc.addPage(); startY = 50; cy = startY; row = 0; }
-            doc.rect(cx, cy, cardWidth, cardHeight).fill(WHITE).stroke(BORDER);
-            doc.fontSize(9).fillColor(BLUE).font("Helvetica-Bold").text(ward.ward_name||"", cx + 6, cy + 5, { width: cardWidth - 12 });
-            doc.fontSize(7).fillColor(GRAY).font("Helvetica").text("Citizens: " + (ward.citizen_count||0), cx + 6, cy + 22);
-            doc.fontSize(7).fillColor(GRAY).text("Admins: " + (ward.admin_count||0), cx + 6, cy + 33);
-        });
-        doc.y = startY + (Math.ceil(wards.length / cols) * (cardHeight + 6)) + 10;
-    },
-
-    newSection: (doc, title) => {
-        if (doc.y > doc.page.height - 120) doc.addPage();
-        doc.moveDown(0.3);
-        doc.fontSize(13).fillColor(BLUE).font("Helvetica-Bold").text(title, { underline: true });
-        doc.moveDown(0.4);
-    },
-
-    renderTable: (doc, items, headers, widths, getRow) => {
-        var tableWidth = widths.reduce((a,b) => a+b, 0);
-        var startX = 45;
-        var startY = doc.y;
-        if (startY + 30 > doc.page.height - 50) doc.addPage();
-        startY = doc.y;
-        doc.rect(startX, startY, tableWidth, 18).fill(BLUE);
-        doc.fontSize(7.5).fillColor(WHITE).font("Helvetica-Bold");
-        var xp = startX + 3;
-        var idxWidth = widths[0];
-        doc.text("#", xp, startY + 4, { width: idxWidth - 3 });
-        xp += idxWidth;
-        for (var h = 1; h < headers.length; h++) {
-            doc.text(headers[h-1], xp, startY + 4, { width: widths[h] - 3 });
-            xp += widths[h];
+        if (tableTop + 40 > doc.page.height - 50) {
+            doc.addPage();
         }
-        var yp = startY + 18;
-        doc.fontSize(7).font("Helvetica");
-        items.forEach(function(item, index) {
-            if (yp + 15 > doc.page.height - 50) {
+
+        const adjustedTop = doc.y;
+        doc.fontSize(8).fillColor('#ffffff');
+        doc.rect(40, adjustedTop, 500, 16).fill('#1a5276');
+        let xPos = 42;
+        headers.forEach((header, i) => {
+            doc.fillColor('#ffffff').text(header, xPos, adjustedTop + 3, { width: colWidths[i] - 4 });
+            xPos += colWidths[i];
+        });
+
+        let yPos = adjustedTop + 16;
+        doc.fontSize(7);
+        citizens.forEach((citizen, index) => {
+            if (yPos + 14 > doc.page.height - 50) {
                 doc.addPage();
-                yp = 50;
-                doc.rect(startX, yp, tableWidth, 18).fill(BLUE);
-                doc.fontSize(7.5).fillColor(WHITE).font("Helvetica-Bold");
-                xp = startX + 3;
-                doc.text("#", xp, yp + 4, { width: idxWidth - 3 });
-                xp += idxWidth;
-                for (var hh = 1; hh < headers.length; hh++) {
-                    doc.text(headers[hh-1], xp, yp + 4, { width: widths[hh] - 3 });
-                    xp += widths[hh];
-                }
-                yp += 18;
-                doc.fontSize(7).font("Helvetica");
+                yPos = 50;
+                doc.fontSize(8).fillColor('#ffffff');
+                doc.rect(40, yPos, 500, 16).fill('#1a5276');
+                let hxPos = 42;
+                headers.forEach((header, i) => {
+                    doc.fillColor('#ffffff').text(header, hxPos, yPos + 3, { width: colWidths[i] - 4 });
+                    hxPos += colWidths[i];
+                });
+                yPos += 16;
             }
-            var bg = index % 2 === 0 ? LIGHT_BG : WHITE;
-            doc.rect(startX, yp, tableWidth, 14).fill(bg);
-            doc.fillColor(DARK);
-            xp = startX + 3;
-            doc.text(String(index + 1), xp, yp + 2, { width: idxWidth - 3 });
-            xp += idxWidth;
-            var rowData = getRow(item);
-            for (var c = 0; c < rowData.length; c++) {
-                var text = rowData[c] || "";
-                if (text.length > widths[c+1] / 5.5) text = text.substring(0, Math.floor(widths[c+1] / 5.5) - 2) + "..";
-                doc.text(text, xp, yp + 2, { width: widths[c+1] - 3 });
-                xp += widths[c+1];
-            }
-            yp += 14;
+
+            const bgColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+            doc.rect(40, yPos, 500, 14).fill(bgColor);
+
+            xPos = 42;
+            const row = [
+                (index + 1).toString(),
+                (citizen.full_name || '').substring(0, 18),
+                (citizen.email || '').substring(0, 28),
+                (citizen.phone || '').substring(0, 15),
+                (citizen.ward_name || '').substring(0, 15),
+                citizen.status || ''
+            ];
+
+            row.forEach((cell, i) => {
+                doc.fillColor('#333333').text(cell, xPos, yPos + 2, { width: colWidths[i] - 4 });
+                xPos += colWidths[i];
+            });
+
+            yPos += 14;
         });
-        doc.y = yp + 12;
+
+        doc.moveDown(2);
+    },
+
+    // Admin table
+    drawAdminTable: (doc, admins) => {
+        const tableTop = doc.y;
+        const colWidths = [25, 90, 140, 90, 80, 55];
+        const headers = ['#', 'Full Name', 'Email', 'Phone', 'Ward', 'Status'];
+
+        if (tableTop + 40 > doc.page.height - 50) {
+            doc.addPage();
+        }
+
+        const adjustedTop = doc.y;
+        doc.fontSize(8).fillColor('#ffffff');
+        doc.rect(40, adjustedTop, 500, 16).fill('#1a5276');
+        let xPos = 42;
+        headers.forEach((header, i) => {
+            doc.fillColor('#ffffff').text(header, xPos, adjustedTop + 3, { width: colWidths[i] - 4 });
+            xPos += colWidths[i];
+        });
+
+        let yPos = adjustedTop + 16;
+        doc.fontSize(7);
+        admins.forEach((admin, index) => {
+            if (yPos + 14 > doc.page.height - 50) {
+                doc.addPage();
+                yPos = 50;
+                doc.fontSize(8).fillColor('#ffffff');
+                doc.rect(40, yPos, 500, 16).fill('#1a5276');
+                let hxPos = 42;
+                headers.forEach((header, i) => {
+                    doc.fillColor('#ffffff').text(header, hxPos, yPos + 3, { width: colWidths[i] - 4 });
+                    hxPos += colWidths[i];
+                });
+                yPos += 16;
+            }
+
+            const bgColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+            doc.rect(40, yPos, 500, 14).fill(bgColor);
+
+            xPos = 42;
+            const row = [
+                (index + 1).toString(),
+                (admin.full_name || '').substring(0, 18),
+                (admin.email || '').substring(0, 28),
+                (admin.phone || '').substring(0, 15),
+                (admin.ward_name || '').substring(0, 15),
+                admin.status || ''
+            ];
+
+            row.forEach((cell, i) => {
+                doc.fillColor('#333333').text(cell, xPos, yPos + 2, { width: colWidths[i] - 4 });
+                xPos += colWidths[i];
+            });
+
+            yPos += 14;
+        });
+
+        doc.moveDown(2);
+    },
+
+    // Audit table
+    drawAuditTable: (doc, logs) => {
+        const tableTop = doc.y;
+        const colWidths = [25, 110, 70, 70, 210];
+        const headers = ['#', 'Action', 'Entity Type', 'Date', 'Description'];
+
+        if (tableTop + 40 > doc.page.height - 50) {
+            doc.addPage();
+        }
+
+        const adjustedTop = doc.y;
+        doc.fontSize(8).fillColor('#ffffff');
+        doc.rect(40, adjustedTop, 500, 16).fill('#1a5276');
+        let xPos = 42;
+        headers.forEach((header, i) => {
+            doc.fillColor('#ffffff').text(header, xPos, adjustedTop + 3, { width: colWidths[i] - 4 });
+            xPos += colWidths[i];
+        });
+
+        let yPos = adjustedTop + 16;
+        doc.fontSize(7);
+        logs.forEach((log, index) => {
+            if (yPos + 14 > doc.page.height - 50) {
+                doc.addPage();
+                yPos = 50;
+                doc.fontSize(8).fillColor('#ffffff');
+                doc.rect(40, yPos, 500, 16).fill('#1a5276');
+                let hxPos = 42;
+                headers.forEach((header, i) => {
+                    doc.fillColor('#ffffff').text(header, hxPos, yPos + 3, { width: colWidths[i] - 4 });
+                    hxPos += colWidths[i];
+                });
+                yPos += 16;
+            }
+
+            const bgColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+            doc.rect(40, yPos, 500, 14).fill(bgColor);
+
+            xPos = 42;
+            const row = [
+                (index + 1).toString(),
+                (log.action || '').substring(0, 22),
+                (log.entity_type || '').substring(0, 14),
+                log.created_at ? new Date(log.created_at).toLocaleDateString() : '',
+                (log.description || '').substring(0, 42)
+            ];
+
+            row.forEach((cell, i) => {
+                doc.fillColor('#333333').text(cell, xPos, yPos + 2, { width: colWidths[i] - 4 });
+                xPos += colWidths[i];
+            });
+
+            yPos += 14;
+        });
+
+        doc.moveDown(2);
+    },
+
+    // Ward table
+    drawWardTable: (doc, wards) => {
+        const tableTop = doc.y;
+        const colWidths = [25, 200, 130, 130];
+        const headers = ['#', 'Ward Name', 'Citizens', 'Admins'];
+
+        if (tableTop + 40 > doc.page.height - 50) {
+            doc.addPage();
+        }
+
+        const adjustedTop = doc.y;
+        doc.fontSize(8).fillColor('#ffffff');
+        doc.rect(40, adjustedTop, 485, 16).fill('#1a5276');
+        let xPos = 42;
+        headers.forEach((header, i) => {
+            doc.fillColor('#ffffff').text(header, xPos, adjustedTop + 3, { width: colWidths[i] - 4 });
+            xPos += colWidths[i];
+        });
+
+        let yPos = adjustedTop + 16;
+        doc.fontSize(8);
+        wards.forEach((ward, index) => {
+            if (yPos + 14 > doc.page.height - 50) {
+                doc.addPage();
+                yPos = 50;
+                doc.fontSize(8).fillColor('#ffffff');
+                doc.rect(40, yPos, 485, 16).fill('#1a5276');
+                let hxPos = 42;
+                headers.forEach((header, i) => {
+                    doc.fillColor('#ffffff').text(header, hxPos, yPos + 3, { width: colWidths[i] - 4 });
+                    hxPos += colWidths[i];
+                });
+                yPos += 16;
+            }
+
+            const bgColor = index % 2 === 0 ? '#f8f9fa' : '#ffffff';
+            doc.rect(40, yPos, 485, 14).fill(bgColor);
+
+            xPos = 42;
+            const row = [
+                (index + 1).toString(),
+                ward.ward_name || '',
+                ward.citizen_count ? ward.citizen_count.toString() : '0',
+                ward.admin_count ? ward.admin_count.toString() : '0'
+            ];
+
+            row.forEach((cell, i) => {
+                doc.fillColor('#333333').text(cell, xPos, yPos + 2, { width: colWidths[i] - 4 });
+                xPos += colWidths[i];
+            });
+
+            yPos += 14;
+        });
+
+        doc.moveDown(2);
     }
 };
 

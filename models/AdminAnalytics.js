@@ -1,4 +1,4 @@
-﻿const pool = require('../config/db');
+const pool = require('../config/db');
 
 const AdminAnalytics = {
     // ====================================
@@ -50,79 +50,152 @@ const AdminAnalytics = {
     // CITIZENS CHART DATA
     // ====================================
     getCitizensChartData: async (wardId) => {
+        // Status distribution
         const [statusDist] = await pool.execute(
             'SELECT status, COUNT(*) as count FROM citizens WHERE ward_id = ? AND is_deleted = FALSE GROUP BY status', [wardId]
         );
+
+        // Monthly registrations (last 12 months)
         const [monthlyReg] = await pool.execute(
-            'SELECT DATE_FORMAT(registration_date, "%Y-%m") as month, COUNT(*) as count FROM citizens WHERE ward_id = ? AND is_deleted = FALSE GROUP BY month ORDER BY month ASC LIMIT 12', [wardId]
+            `SELECT DATE_FORMAT(registration_date, '%Y-%m') as month, COUNT(*) as count 
+             FROM citizens WHERE ward_id = ? AND is_deleted = FALSE 
+             GROUP BY month ORDER BY month ASC LIMIT 12`, [wardId]
         );
-        return { status_distribution: statusDist, monthly_registrations: monthlyReg };
+
+        return {
+            status_distribution: statusDist,
+            monthly_registrations: monthlyReg
+        };
     },
 
     // ====================================
     // PAYMENTS CHART DATA
     // ====================================
     getPaymentsChartData: async (wardId) => {
+        // Monthly revenue (last 12 months)
         const [monthlyRevenue] = await pool.execute(
-            'SELECT DATE_FORMAT(p.payment_date, "%Y-%m") as month, COALESCE(SUM(p.amount), 0) as total_amount, COUNT(*) as count FROM payments p JOIN citizens c ON p.citizen_id = c.id WHERE c.ward_id = ? AND p.payment_status = "paid" GROUP BY month ORDER BY month ASC LIMIT 12', [wardId]
+            `SELECT DATE_FORMAT(p.payment_date, '%Y-%m') as month, 
+                    COALESCE(SUM(p.amount), 0) as total_amount, COUNT(*) as count
+             FROM payments p JOIN citizens c ON p.citizen_id = c.id
+             WHERE c.ward_id = ? AND p.payment_status = 'paid'
+             GROUP BY month ORDER BY month ASC LIMIT 12`, [wardId]
         );
+
+        // Payment status distribution
         const [statusDist] = await pool.execute(
-            'SELECT p.payment_status as status, COUNT(*) as count FROM payments p JOIN citizens c ON p.citizen_id = c.id WHERE c.ward_id = ? GROUP BY p.payment_status', [wardId]
+            `SELECT p.payment_status as status, COUNT(*) as count 
+             FROM payments p JOIN citizens c ON p.citizen_id = c.id
+             WHERE c.ward_id = ? GROUP BY p.payment_status`, [wardId]
         );
+
+        // Payment method distribution
         const [methodDist] = await pool.execute(
-            'SELECT p.payment_method as method, COUNT(*) as count, COALESCE(SUM(p.amount), 0) as total_amount FROM payments p JOIN citizens c ON p.citizen_id = c.id WHERE c.ward_id = ? AND p.payment_status = "paid" GROUP BY p.payment_method', [wardId]
+            `SELECT p.payment_method as method, COUNT(*) as count, COALESCE(SUM(p.amount), 0) as total_amount
+             FROM payments p JOIN citizens c ON p.citizen_id = c.id
+             WHERE c.ward_id = ? AND p.payment_status = 'paid'
+             GROUP BY p.payment_method`, [wardId]
         );
-        return { monthly_revenue: monthlyRevenue, status_distribution: statusDist, method_distribution: methodDist };
+
+        return {
+            monthly_revenue: monthlyRevenue,
+            status_distribution: statusDist,
+            method_distribution: methodDist
+        };
     },
 
     // ====================================
     // DOCUMENTS CHART DATA
     // ====================================
     getDocumentsChartData: async (wardId) => {
+        // Documents requested per month
         const [monthlyDocs] = await pool.execute(
-            'SELECT DATE_FORMAT(dr.date_requested, "%Y-%m") as month, COUNT(*) as count FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id WHERE c.ward_id = ? GROUP BY month ORDER BY month ASC LIMIT 12', [wardId]
+            `SELECT DATE_FORMAT(dr.date_requested, '%Y-%m') as month, COUNT(*) as count
+             FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id
+             WHERE c.ward_id = ? GROUP BY month ORDER BY month ASC LIMIT 12`, [wardId]
         );
+
+        // Most requested document types
         const [docTypes] = await pool.execute(
-            'SELECT dr.document_type, COUNT(*) as count FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id WHERE c.ward_id = ? GROUP BY dr.document_type ORDER BY count DESC', [wardId]
+            `SELECT dr.document_type, COUNT(*) as count
+             FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id
+             WHERE c.ward_id = ? GROUP BY dr.document_type ORDER BY count DESC`, [wardId]
         );
+
+        // Issued vs Pending
         const [statusDist] = await pool.execute(
-            'SELECT dr.request_status as status, COUNT(*) as count FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id WHERE c.ward_id = ? GROUP BY dr.request_status', [wardId]
+            `SELECT dr.request_status as status, COUNT(*) as count
+             FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id
+             WHERE c.ward_id = ? GROUP BY dr.request_status`, [wardId]
         );
-        return { monthly_documents: monthlyDocs, document_types: docTypes, status_distribution: statusDist };
+
+        return {
+            monthly_documents: monthlyDocs,
+            document_types: docTypes,
+            status_distribution: statusDist
+        };
     },
 
     // ====================================
-    // GET CITIZENS FOR REPORT
+    // GET CITIZENS DATA FOR REPORT
     // ====================================
     getCitizensForReport: async (wardId, filters = {}) => {
         let query = 'SELECT * FROM citizens WHERE ward_id = ? AND is_deleted = FALSE';
         const params = [wardId];
-        if (filters.status) { query += ' AND status = ?'; params.push(filters.status); }
+
+        if (filters.status) {
+            query += ' AND status = ?';
+            params.push(filters.status);
+        }
+
         query += ' ORDER BY registration_date DESC';
+
         const [rows] = await pool.execute(query, params);
         return rows;
     },
 
     // ====================================
-    // GET PAYMENTS FOR REPORT
+    // GET PAYMENTS DATA FOR REPORT
     // ====================================
     getPaymentsForReport: async (wardId, filters = {}) => {
-        let query = 'SELECT p.*, c.full_name as citizen_name, dr.document_type FROM payments p JOIN citizens c ON p.citizen_id = c.id LEFT JOIN document_requests dr ON p.document_request_id = dr.id WHERE c.ward_id = ?';
+        let query = `
+            SELECT p.*, c.full_name as citizen_name, dr.document_type
+            FROM payments p 
+            JOIN citizens c ON p.citizen_id = c.id
+            LEFT JOIN document_requests dr ON p.document_request_id = dr.id
+            WHERE c.ward_id = ?
+        `;
         const params = [wardId];
-        if (filters.status) { query += ' AND p.payment_status = ?'; params.push(filters.status); }
+
+        if (filters.status) {
+            query += ' AND p.payment_status = ?';
+            params.push(filters.status);
+        }
+
         query += ' ORDER BY p.payment_date DESC';
+
         const [rows] = await pool.execute(query, params);
         return rows;
     },
 
     // ====================================
-    // GET DOCUMENTS FOR REPORT
+    // GET DOCUMENTS DATA FOR REPORT
     // ====================================
     getDocumentsForReport: async (wardId, filters = {}) => {
-        let query = 'SELECT dr.*, c.full_name as citizen_name, c.phone as citizen_phone FROM document_requests dr JOIN citizens c ON dr.citizen_id = c.id WHERE c.ward_id = ?';
+        let query = `
+            SELECT dr.*, c.full_name as citizen_name, c.phone as citizen_phone
+            FROM document_requests dr
+            JOIN citizens c ON dr.citizen_id = c.id
+            WHERE c.ward_id = ?
+        `;
         const params = [wardId];
-        if (filters.status) { query += ' AND dr.request_status = ?'; params.push(filters.status); }
+
+        if (filters.status) {
+            query += ' AND dr.request_status = ?';
+            params.push(filters.status);
+        }
+
         query += ' ORDER BY dr.date_requested DESC';
+
         const [rows] = await pool.execute(query, params);
         return rows;
     }

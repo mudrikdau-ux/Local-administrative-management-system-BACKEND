@@ -1,26 +1,35 @@
-﻿const pool = require('../config/db');
+const pool = require('../config/db');
 
 const SystemSetting = {
+    // Get current settings (always first row)
     getSettings: async () => {
         const [rows] = await pool.execute('SELECT * FROM system_settings LIMIT 1');
         return rows[0];
     },
 
+    // Update general settings
     updateSettings: async (data) => {
         const { system_name, organization_name, contact_email, contact_phone, system_address, website_url, description, logo, updated_by } = data;
         const [result] = await pool.execute(
             `UPDATE system_settings SET 
-                system_name = ?, organization_name = ?, contact_email = ?, contact_phone = ?, 
-                system_address = COALESCE(?, system_address), website_url = COALESCE(?, website_url),
-                description = COALESCE(?, description), logo = COALESCE(?, logo), updated_by = ?
+                system_name = ?, 
+                organization_name = ?, 
+                contact_email = ?, 
+                contact_phone = ?, 
+                system_address = COALESCE(?, system_address),
+                website_url = COALESCE(?, website_url),
+                description = COALESCE(?, description),
+                logo = COALESCE(?, logo),
+                updated_by = ?
              WHERE id = 1`,
-            [system_name, organization_name, contact_email, contact_phone,
-             system_address || null, website_url || null, description || null,
+            [system_name, organization_name, contact_email, contact_phone, 
+             system_address || null, website_url || null, description || null, 
              logo || null, updated_by || null]
         );
         return result.affectedRows > 0;
     },
 
+    // Update theme only
     updateTheme: async (theme, updated_by) => {
         const [result] = await pool.execute(
             'UPDATE system_settings SET default_theme = ?, updated_by = ? WHERE id = 1',
@@ -29,6 +38,7 @@ const SystemSetting = {
         return result.affectedRows > 0;
     },
 
+    // Update language only
     updateLanguage: async (language, updated_by) => {
         const [result] = await pool.execute(
             'UPDATE system_settings SET default_language = ?, updated_by = ? WHERE id = 1',
@@ -37,6 +47,7 @@ const SystemSetting = {
         return result.affectedRows > 0;
     },
 
+    // Update notification settings
     updateNotifications: async (data) => {
         const { notifications_enabled, email_notifications_enabled, announcement_notifications_enabled, updated_by } = data;
         const [result] = await pool.execute(

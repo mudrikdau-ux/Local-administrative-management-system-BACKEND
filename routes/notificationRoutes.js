@@ -1,14 +1,29 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 const notificationController = require('../controllers/notificationController');
 
+// SSE Stream (Real-time)
 router.get('/stream', notificationController.streamNotifications);
-router.get('/unread', notificationController.getUnread);
-router.get('/unread-count', notificationController.getUnreadCount);
+
+// Get notifications (paginated, optional type filter)
 router.get('/', notificationController.getNotifications);
-router.put('/read-all', notificationController.markAllAsRead);
+
+// Get unread notifications
+router.get('/unread', notificationController.getUnread);
+
+// Get unread count
+router.get('/unread-count', notificationController.getUnreadCount);
+
+// Mark single as read
 router.put('/:id/read', notificationController.markAsRead);
-router.delete('/clear-all', notificationController.clearAll);
+
+// Mark all as read
+router.put('/read-all', notificationController.markAllAsRead);
+
+// Delete single notification
 router.delete('/:id', notificationController.deleteNotification);
+
+// Clear all notifications
+router.delete('/clear-all', notificationController.clearAll);
 
 module.exports = router;

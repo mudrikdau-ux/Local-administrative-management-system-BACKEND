@@ -1,10 +1,14 @@
 const AdminCitizen = require('../models/AdminCitizen');
 const AuditLogModel = require('../models/AuditLogModel');
-const { body, query, validationResult } = require('express-validator');
+const { body, validationResult } = require('express-validator');
+const bcrypt = require('bcryptjs');
+const { generateOTP } = require('../utils/helpers');
+const { sendWelcomeEmail, sendPasswordResetNotification } = require('../services/emailService');
+const pool = require('../config/db');
 
 const adminCitizenController = {
     // ====================================
-    // CREATE CITIZEN
+    // CREATE CITIZEN (With Welcome Email)
     // ====================================
     createCitizen: [
         body('full_name').trim().notEmpty().withMessage('Full name is required.'),
@@ -20,6 +24,7 @@ const adminCitizenController = {
             try {
                 const { full_name, email, phone, address, status, registration_date } = req.body;
                 const wardId = req.user.ward_id;
+                const wardName = req.user.ward_name || 'Your';
                 const adminId = req.user.admin_id;
 
                 // Check duplicate email if provided
@@ -27,6 +32,12 @@ const adminCitizenController = {
                     const emailExists = await AdminCitizen.getByEmail(email);
                     if (emailExists) {
                         return res.status(400).json({ success: false, message: 'Email already registered.' });
+                    }
+
+                    // Also check users table for duplicate email
+                    const [userExists] = await pool.execute('SELECT id FROM users WHERE email = ?', [email]);
+                    if (userExists.length > 0) {
+                        return res.status(400).json({ success: false, message: 'Email already registered in the system.' });
                     }
                 }
 
@@ -36,6 +47,45 @@ const adminCitizenController = {
                     return res.status(400).json({ success: false, message: 'Phone number already registered.' });
                 }
 
+                // Generate temporary password and create user account if email provided
+                let userId = null;
+                let tempPassword = null;
+                let emailSent = false;
+
+                if (email) {
+                    tempPassword = generateOTP() + 'Ctz';
+                    const salt = await bcrypt.genSalt(12);
+                    const hashedPassword = await bcrypt.hash(tempPassword, salt);
+
+                    // Create user account
+                    const User = require('../models/User');
+                    userId = await User.create({
+                        full_name,
+                        email,
+                        phone,
+                        password: hashedPassword,
+                        role: 'citizen'
+                    });
+
+                    // Mark as temporary password
+                    await pool.execute(
+                        'UPDATE users SET temp_password = ?, password_changed = FALSE WHERE id = ?',
+                        [tempPassword, userId]
+                    );
+
+                    // Send welcome email
+                    try {
+                        await sendWelcomeEmail(email, full_name, tempPassword, wardName);
+                        emailSent = true;
+                    } catch (emailError) {
+                        console.log('Welcome email not sent:', emailError.message);
+                        console.log(`========================================`);
+                        console.log(`Citizen Temp Password for ${email}: ${tempPassword}`);
+                        console.log(`========================================`);
+                    }
+                }
+
+                // Create citizen record
                 const citizenId = await AdminCitizen.create({
                     full_name,
                     email: email || null,
@@ -47,6 +97,11 @@ const adminCitizenController = {
                     registration_date: registration_date || new Date().toISOString().split('T')[0]
                 });
 
+                // Link citizen to user account
+                if (userId) {
+                    await pool.execute('UPDATE citizens SET user_id = ? WHERE id = ?', [userId, citizenId]);
+                }
+
                 // Audit log
                 await AuditLogModel.create({
                     email: req.user.email,
@@ -54,10 +109,10 @@ const adminCitizenController = {
                     action: 'CITIZEN_CREATED',
                     type: 'citizen',
                     status: 'success',
-                    description: `Citizen registered: ${full_name}`,
+                    description: `Citizen registered: ${full_name}${email ? ' (Account created with welcome email)' : ''}`,
                     entity_type: 'citizen',
                     entity_id: citizenId,
-                    new_values: { full_name, email, phone, address, status },
+                    new_values: { full_name, email, phone, address, status, account_created: !!userId },
                     performed_by: req.user.id,
                     ip_address: req.ip
                 });
@@ -65,7 +120,11 @@ const adminCitizenController = {
                 res.status(201).json({
                     success: true,
                     message: 'Citizen registered successfully.',
-                    citizen_id: citizenId
+                    citizen_id: citizenId,
+                    user_id: userId,
+                    account_created: !!userId,
+                    welcome_email_sent: emailSent,
+                    temporary_password: email ? tempPassword : null
                 });
             } catch (error) {
                 console.error('Create Citizen Error:', error);
@@ -165,6 +224,11 @@ const adminCitizenController = {
                     if (emailExists) {
                         return res.status(400).json({ success: false, message: 'Email already in use.' });
                     }
+                    // Also check users table
+                    const [userExists] = await pool.execute('SELECT id FROM users WHERE email = ? AND id != ?', [email, existing.user_id || 0]);
+                    if (userExists.length > 0) {
+                        return res.status(400).json({ success: false, message: 'Email already registered in the system.' });
+                    }
                 }
 
                 // Check duplicate phone
@@ -186,6 +250,12 @@ const adminCitizenController = {
 
                 if (!updated) {
                     return res.status(500).json({ success: false, message: 'Failed to update citizen.' });
+                }
+
+                // Sync user account email if changed and user account exists
+                if (email && email !== existing.email && existing.user_id) {
+                    await pool.execute('UPDATE users SET email = ?, full_name = ?, phone = ? WHERE id = ?', 
+                        [email, full_name, phone, existing.user_id]);
                 }
 
                 // Audit log
@@ -211,6 +281,95 @@ const adminCitizenController = {
             }
         }
     ],
+
+    // ====================================
+    // RESET CITIZEN PASSWORD
+    // ====================================
+    resetCitizenPassword: async (req, res) => {
+        try {
+            const { id } = req.params;
+            const wardId = req.user.ward_id;
+
+            // Find citizen in admin's ward
+            const citizen = await AdminCitizen.getById(id, wardId);
+            
+            if (!citizen) {
+                return res.status(404).json({ success: false, message: 'Citizen not found.' });
+            }
+
+            if (!citizen.email) {
+                return res.status(400).json({ success: false, message: 'This citizen does not have an email address.' });
+            }
+
+            // Check if citizen has a user account
+            const [userRows] = await pool.execute(
+                'SELECT id FROM users WHERE email = ? AND role = ?',
+                [citizen.email, 'citizen']
+            );
+
+            let userId;
+            let tempPassword = generateOTP() + 'Ctz';
+            const salt = await bcrypt.genSalt(12);
+            const hashedPassword = await bcrypt.hash(tempPassword, salt);
+
+            if (userRows.length > 0) {
+                // Update existing user password
+                userId = userRows[0].id;
+                await pool.execute(
+                    'UPDATE users SET password = ?, temp_password = ?, password_changed = FALSE WHERE id = ?',
+                    [hashedPassword, tempPassword, userId]
+                );
+            } else {
+                // Create new user account
+                const User = require('../models/User');
+                userId = await User.create({
+                    full_name: citizen.full_name,
+                    email: citizen.email,
+                    phone: citizen.phone,
+                    password: hashedPassword,
+                    role: 'citizen'
+                });
+                await pool.execute('UPDATE citizens SET user_id = ? WHERE id = ?', [userId, citizen.id]);
+            }
+
+            // Send password reset notification
+            let emailSent = false;
+            try {
+                await sendPasswordResetNotification(citizen.email, citizen.full_name, tempPassword);
+                emailSent = true;
+            } catch (emailError) {
+                console.log('Password reset email not sent:', emailError.message);
+                console.log(`========================================`);
+                console.log(`Reset Password for ${citizen.email}: ${tempPassword}`);
+                console.log(`========================================`);
+            }
+
+            // Audit log
+            await AuditLogModel.create({
+                email: req.user.email,
+                role: 'admin',
+                action: 'CITIZEN_PASSWORD_RESET',
+                type: 'citizen',
+                status: 'success',
+                description: `Password reset for citizen: ${citizen.full_name}`,
+                entity_type: 'citizen',
+                entity_id: id,
+                performed_by: req.user.id,
+                ip_address: req.ip
+            });
+
+            res.json({
+                success: true,
+                message: 'Citizen password reset successfully.',
+                temporary_password: tempPassword,
+                citizen_email: citizen.email,
+                email_sent: emailSent
+            });
+        } catch (error) {
+            console.error('Reset Citizen Password Error:', error);
+            res.status(500).json({ success: false, message: 'Server error resetting password.' });
+        }
+    },
 
     // ====================================
     // DELETE CITIZEN (Soft Delete)

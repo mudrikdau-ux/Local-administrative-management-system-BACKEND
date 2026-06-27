@@ -14,6 +14,7 @@ router.post('/', adminCitizenController.createCitizen);
 router.get('/', adminCitizenController.getCitizens);
 router.get('/:id', adminCitizenController.getCitizenById);
 router.put('/:id', adminCitizenController.updateCitizen);
+router.put('/:id/reset-password', adminCitizenController.resetCitizenPassword);
 router.delete('/:id', adminCitizenController.deleteCitizen);
 
 module.exports = router;

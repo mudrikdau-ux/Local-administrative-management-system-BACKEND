@@ -12,9 +12,11 @@ const Dashboard = {
         const [suspendedAdmins] = await pool.execute("SELECT COUNT(*) as count FROM admins WHERE status = 'suspended'");
         const [inactiveAdmins] = await pool.execute("SELECT COUNT(*) as count FROM admins WHERE status = 'inactive'");
         const [totalWards] = await pool.execute('SELECT COUNT(*) as count FROM wards');
-        const [totalReports] = await pool.execute('SELECT COUNT(*) as count FROM reports');
+        const [totalDocuments] = await pool.execute('SELECT COUNT(*) as count FROM reports WHERE report_type = "full_system"');
         const [totalAuditLogs] = await pool.execute('SELECT COUNT(*) as count FROM audit_logs');
+        const [totalReports] = await pool.execute('SELECT COUNT(*) as count FROM reports');
 
+        // Revenue (from payments table if exists, else mock)
         let totalRevenue = 0;
         try {
             const [revenue] = await pool.execute(
@@ -33,14 +35,15 @@ const Dashboard = {
             suspended_admins: suspendedAdmins[0].count,
             inactive_admins: inactiveAdmins[0].count,
             total_wards: totalWards[0].count,
-            total_reports: totalReports[0].count,
+            total_documents: totalDocuments[0].count,
             total_audit_logs: totalAuditLogs[0].count,
+            total_reports: totalReports[0].count,
             total_revenue: totalRevenue
         };
     },
 
     // ====================================
-    // GET LEADERSHIP OVERVIEW
+    // GET LEADERSHIP OVERVIEW (Per Ward)
     // ====================================
     getLeadershipOverview: async () => {
         const [rows] = await pool.execute(`
@@ -60,25 +63,28 @@ const Dashboard = {
         return rows;
     },
 
-    // ====================================
+        // ====================================
     // GET RECENT ACTIVITIES
     // ====================================
     getRecentActivities: async (limit = 10) => {
-        const [rows] = await pool.query(
+        const [rows] = await pool.execute(
             `SELECT id, email, role, action, type, status, description, ip_address, created_at 
              FROM audit_logs 
              ORDER BY created_at DESC 
-             LIMIT ${parseInt(limit)}`
+             LIMIT ?`,
+            [String(limit)]
         );
         return rows;
     },
 
     // ====================================
-    // GET CITIZENS PER WARD
+    // GET CITIZENS PER WARD (Chart Data)
     // ====================================
     getCitizensPerWard: async () => {
         const [rows] = await pool.execute(`
-            SELECT w.ward_name, COUNT(c.id) as citizen_count
+            SELECT 
+                w.ward_name,
+                COUNT(c.id) as citizen_count
             FROM wards w
             LEFT JOIN citizens c ON w.id = c.ward_id
             GROUP BY w.id, w.ward_name
@@ -88,11 +94,13 @@ const Dashboard = {
     },
 
     // ====================================
-    // GET ADMINS PER WARD
+    // GET ADMINS PER WARD (Chart Data)
     // ====================================
     getAdminsPerWard: async () => {
         const [rows] = await pool.execute(`
-            SELECT w.ward_name, COUNT(a.id) as admin_count
+            SELECT 
+                w.ward_name,
+                COUNT(a.id) as admin_count
             FROM wards w
             LEFT JOIN admins a ON w.id = a.ward_id
             GROUP BY w.id, w.ward_name
@@ -102,34 +110,47 @@ const Dashboard = {
     },
 
     // ====================================
-    // GET ADMIN STATUS DISTRIBUTION
+    // GET ADMIN STATUS DISTRIBUTION (Chart Data)
     // ====================================
     getAdminStatusDistribution: async () => {
         const [rows] = await pool.execute(`
-            SELECT status, COUNT(*) as count FROM admins GROUP BY status
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM admins
+            GROUP BY status
         `);
         return rows;
     },
 
     // ====================================
-    // GET CITIZEN STATUS DISTRIBUTION
+    // GET CITIZEN STATUS DISTRIBUTION (Chart Data)
     // ====================================
     getCitizenStatusDistribution: async () => {
         const [rows] = await pool.execute(`
-            SELECT status, COUNT(*) as count FROM citizens GROUP BY status
+            SELECT 
+                status,
+                COUNT(*) as count
+            FROM citizens
+            GROUP BY status
         `);
         return rows;
     },
 
     // ====================================
-    // GET REVENUE OVERVIEW
+    // GET REVENUE OVERVIEW (Chart Data - Monthly)
     // ====================================
     getRevenueOverview: async () => {
         try {
             const [rows] = await pool.execute(`
-                SELECT DATE_FORMAT(payment_date, '%Y-%m') as month, COALESCE(SUM(amount), 0) as total_amount
-                FROM payments WHERE status = 'completed'
-                GROUP BY month ORDER BY month DESC LIMIT 12
+                SELECT 
+                    DATE_FORMAT(payment_date, '%Y-%m') as month,
+                    COALESCE(SUM(amount), 0) as total_amount
+                FROM payments 
+                WHERE status = 'completed'
+                GROUP BY month 
+                ORDER BY month DESC 
+                LIMIT 12
             `);
             return rows;
         } catch (e) {
@@ -137,16 +158,17 @@ const Dashboard = {
         }
     },
 
-    // ====================================
-    // GET NOTIFICATIONS
+        // ====================================
+    // GET RECENT SECURITY ALERTS (Notifications)
     // ====================================
     getNotifications: async (limit = 5) => {
-        const [rows] = await pool.query(
+        const [rows] = await pool.execute(
             `SELECT id, email, role, action, type, description, severity, is_read, created_at 
              FROM security_alerts 
              WHERE is_read = FALSE 
              ORDER BY created_at DESC 
-             LIMIT ${parseInt(limit)}`
+             LIMIT ?`,
+            [String(limit)]
         );
         const [unreadCount] = await pool.execute(
             'SELECT COUNT(*) as count FROM security_alerts WHERE is_read = FALSE'
@@ -162,15 +184,24 @@ const Dashboard = {
     // ====================================
     getSystemStatus: async () => {
         try {
+            // Check DB connection
             await pool.execute('SELECT 1');
-            return { status: 'operational', color: 'green', message: 'System Operational' };
+            return {
+                status: 'operational',
+                color: 'green',
+                message: 'System Operational'
+            };
         } catch (e) {
-            return { status: 'warning', color: 'orange', message: 'System Degraded' };
+            return {
+                status: 'warning',
+                color: 'orange',
+                message: 'System Degraded'
+            };
         }
     },
 
     // ====================================
-    // GET FULL DASHBOARD
+    // GET FULL DASHBOARD DATA (All in One)
     // ====================================
     getFullDashboard: async () => {
         const [
